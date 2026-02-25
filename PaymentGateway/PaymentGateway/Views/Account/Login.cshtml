@@ -1,0 +1,57 @@
+@model LoginViewModel
+@{
+    ViewData["Title"] = "Login";
+    var returnUrl = ViewData["ReturnUrl"] as string;
+}
+
+<section class="auth-shell">
+    <aside class="auth-panel">
+        <h2>Gateway Operations</h2>
+        <p>Secure access for payment administrators. Monitor transactions, investigate failures, and manage credentials from one control plane.</p>
+        <div class="auth-metrics">
+            <div class="metric"><strong>Real-time</strong><span>Payment visibility</span></div>
+            <div class="metric"><strong>Secure</strong><span>Role-based access</span></div>
+            <div class="metric"><strong>Auditable</strong><span>Server-side reports</span></div>
+        </div>
+    </aside>
+
+    <section class="auth-card">
+        <h1>Admin Login</h1>
+        <p class="muted">Use your registered admin credentials to continue.</p>
+        <p class="muted small">If no user exists in database, first login will initialize the first admin account.</p>
+
+        <form asp-action="Login" asp-controller="Account" method="post" novalidate>
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="returnUrl" value="@returnUrl" />
+
+            <div asp-validation-summary="ModelOnly" class="text-danger mb-2"></div>
+
+            <div class="mb-3">
+                <label asp-for="Email" class="form-label"></label>
+                <input asp-for="Email" class="form-control" autocomplete="username" />
+                <span asp-validation-for="Email" class="text-danger"></span>
+            </div>
+
+            <div class="mb-3">
+                <label asp-for="Password" class="form-label"></label>
+                <input asp-for="Password" class="form-control" autocomplete="current-password" />
+                <span asp-validation-for="Password" class="text-danger"></span>
+            </div>
+
+            <div class="form-check mb-3">
+                <input asp-for="RememberMe" class="form-check-input" />
+                <label asp-for="RememberMe" class="form-check-label">Keep me signed in</label>
+            </div>
+
+            <button type="submit" class="btn btn-primary w-100">Sign In</button>
+        </form>
+
+        <div class="auth-links">
+            <a asp-action="ForgotPassword" asp-controller="Account">Forgot password?</a>
+        </div>
+    </section>
+</section>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}

@@ -2,7 +2,20 @@
     ViewData["Title"] = "Home Page";
 }
 
-<div class="text-center">
-    <h1 class="display-4">Welcome</h1>
-    <p>Learn about <a href="https://learn.microsoft.com/aspnet/core">building Web apps with ASP.NET Core</a>.</p>
+<div class="container py-5">
+    <h1 class="display-5">Payment Gateway Portal</h1>
+    <p class="text-muted">Login to access report data and account security actions.</p>
+
+    <div class="d-flex gap-2">
+        @if (User.Identity?.IsAuthenticated == true)
+        {
+            <a class="btn btn-primary" asp-controller="Report" asp-action="Index">Open Report</a>
+            <a class="btn btn-outline-primary" asp-controller="Account" asp-action="ChangePassword">Change Password</a>
+        }
+        else
+        {
+            <a class="btn btn-primary" asp-controller="Account" asp-action="Login">Login</a>
+            <a class="btn btn-outline-primary" asp-controller="Account" asp-action="ForgotPassword">Reset Password</a>
+        }
+    </div>
 </div>

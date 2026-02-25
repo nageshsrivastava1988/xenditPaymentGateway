@@ -278,10 +278,8 @@ public class PaymentController : Controller
         string statementDescriptor = _configuration["Xendit:StatementDescriptor"] ?? "Goods and Services";
 
         string successUrl = Url.Action(nameof(Success), "Payment", new { indexGuid }, Request.Scheme)
-            ?? _configuration["Xendit:SuccessReturnUrl"]
             ?? throw new InvalidOperationException("Unable to build success return URL.");
         string failureUrl = Url.Action(nameof(Failed), "Payment", new { indexGuid }, Request.Scheme)
-            ?? _configuration["Xendit:FailureReturnUrl"]
             ?? throw new InvalidOperationException("Unable to build failure return URL.");
 
         long amount = Convert.ToInt64(Math.Round(session.Amount, MidpointRounding.AwayFromZero));

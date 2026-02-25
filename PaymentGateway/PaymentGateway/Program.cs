@@ -1,5 +1,6 @@
 using PaymentGateway.Helpers;
 using PaymentGateway.Services;
+using Microsoft.AspNetCore.Authentication.Cookies;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -18,6 +19,16 @@ builder.WebHost.ConfigureKestrel((context, options) =>
 // Add services to the container.
 builder.Services.AddControllersWithViews();
 builder.Services.AddSingleton<IPaymentDataStore, PaymentDataStore>();
+builder.Services.AddSingleton<IAccountEmailService, AccountEmailService>();
+builder.Services
+    .AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+    .AddCookie(options =>
+    {
+        options.LoginPath = "/account/login";
+        options.AccessDeniedPath = "/account/login";
+        options.SlidingExpiration = true;
+        options.ExpireTimeSpan = TimeSpan.FromHours(8);
+    });
 builder.Services.AddHttpClient("Xendit", client =>
 {
     client.BaseAddress = new Uri(builder.Configuration["Xendit:BaseUrl"] ?? "https://api.xendit.co/");
@@ -41,7 +52,7 @@ var app = builder.Build();
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())
 {
-    app.UseExceptionHandler("/Home/Error");
+    app.UseExceptionHandler("/error");
     // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
     app.UseHsts();
 }
@@ -49,13 +60,15 @@ if (!app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 app.UseRouting();
 
+app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapStaticAssets();
+app.MapGet("/", () => Results.Redirect("/account/login"));
 
 app.MapControllerRoute(
     name: "default",
-    pattern: "{controller=Home}/{action=Index}/{id?}")
+    pattern: "{controller=Account}/{action=Login}/{id?}")
     .WithStaticAssets();
 
 

@@ -1,4 +1,5 @@
 using Npgsql;
+using NpgsqlTypes;
 using PaymentGateway.Models;
 
 namespace PaymentGateway.Services;
@@ -7,9 +8,30 @@ public interface IPaymentDataStore
 {
     Task<Guid> SaveDecryptedPayloadAsync(PaymentModel payment, string decryptedJson, string traceId, CancellationToken cancellationToken);
     Task<PaymentSessionRecord?> GetByIndexGuidAsync(Guid indexGuid, CancellationToken cancellationToken);
+    Task<List<PaymentSessionRecord>> GetRecentPaymentSessionsAsync(int limit, CancellationToken cancellationToken);
+    Task<PaymentReportQueryResult> SearchPaymentSessionsAsync(
+        DateTime? fromUtc,
+        DateTime? toUtc,
+        string? status,
+        string? referenceNo,
+        int pageNumber,
+        int pageSize,
+        CancellationToken cancellationToken);
     Task<List<PaymentChannelOptionViewModel>> GetChannelOptionsAsync(decimal amount, CancellationToken cancellationToken);
     Task UpdatePaymentAttemptAsync(Guid indexGuid, string channelCode, string? paymentUrl, CancellationToken cancellationToken);
     Task UpdateStatusAsync(Guid indexGuid, string status, CancellationToken cancellationToken);
+    Task<UserAccountRecord?> GetUserByEmailAsync(string email, CancellationToken cancellationToken);
+    Task<UserAccountRecord?> GetUserByIdAsync(Guid userId, CancellationToken cancellationToken);
+    Task<UserAccountRecord?> CreateFirstUserIfNoUsersAsync(
+        string email,
+        string? fullName,
+        byte[] passwordHash,
+        byte[] passwordSalt,
+        CancellationToken cancellationToken);
+    Task<Guid> CreatePasswordResetTokenAsync(Guid userId, byte[] tokenHash, DateTime expiresAtUtc, CancellationToken cancellationToken);
+    Task<bool> IsPasswordResetTokenValidAsync(Guid tokenId, byte[] tokenHash, CancellationToken cancellationToken);
+    Task<bool> TryResetPasswordWithTokenAsync(Guid tokenId, byte[] tokenHash, byte[] newPasswordHash, byte[] newPasswordSalt, CancellationToken cancellationToken);
+    Task UpdateUserPasswordAsync(Guid userId, byte[] newPasswordHash, byte[] newPasswordSalt, CancellationToken cancellationToken);
 }
 
 public sealed class PaymentDataStore : IPaymentDataStore
@@ -192,6 +214,155 @@ public sealed class PaymentDataStore : IPaymentDataStore
         return options;
     }
 
+    public async Task<List<PaymentSessionRecord>> GetRecentPaymentSessionsAsync(int limit, CancellationToken cancellationToken)
+    {
+        _logger.LogDebug("DB get recent payment sessions started. Limit: {Limit}", limit);
+        await using var connection = await OpenReadyConnectionAsync(cancellationToken);
+
+        string querySql = $"""
+            SELECT
+                index_guid,
+                trace_id,
+                invoice_uuid,
+                invoice_reference,
+                billed_entity_name,
+                amount,
+                space_uuid,
+                space_name,
+                decrypted_json,
+                status,
+                selected_channel_code,
+                payment_url,
+                created_at_utc,
+                updated_at_utc
+            FROM {GetQualifiedTableName("payment_checkout_session")}
+            ORDER BY created_at_utc DESC
+            LIMIT @limit;
+            """;
+
+        await using var command = new NpgsqlCommand(querySql, connection);
+        command.Parameters.AddWithValue("@limit", Math.Clamp(limit, 1, 500));
+
+        var sessions = new List<PaymentSessionRecord>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            sessions.Add(new PaymentSessionRecord
+            {
+                IndexGuid = reader.GetGuid(reader.GetOrdinal("index_guid")),
+                TraceId = reader["trace_id"] as string,
+                InvoiceUuid = reader["invoice_uuid"] as string,
+                InvoiceReference = reader["invoice_reference"] as string,
+                BilledEntityName = reader["billed_entity_name"] as string,
+                Amount = reader.GetDecimal(reader.GetOrdinal("amount")),
+                SpaceUuid = reader["space_uuid"] as string,
+                SpaceName = reader["space_name"] as string,
+                DecryptedJson = reader["decrypted_json"] as string ?? string.Empty,
+                Status = reader["status"] as string ?? "Pending",
+                SelectedChannelCode = reader["selected_channel_code"] as string,
+                PaymentUrl = reader["payment_url"] as string,
+                CreatedAtUtc = reader.GetDateTime(reader.GetOrdinal("created_at_utc")),
+                UpdatedAtUtc = reader.GetDateTime(reader.GetOrdinal("updated_at_utc"))
+            });
+        }
+
+        _logger.LogInformation("DB get recent payment sessions completed. Count: {Count}", sessions.Count);
+        return sessions;
+    }
+
+    public async Task<PaymentReportQueryResult> SearchPaymentSessionsAsync(
+        DateTime? fromUtc,
+        DateTime? toUtc,
+        string? status,
+        string? referenceNo,
+        int pageNumber,
+        int pageSize,
+        CancellationToken cancellationToken)
+    {
+        await using var connection = await OpenReadyConnectionAsync(cancellationToken);
+        string? normalizedStatus = string.IsNullOrWhiteSpace(status) ? null : status.Trim();
+        string? normalizedReference = string.IsNullOrWhiteSpace(referenceNo) ? null : referenceNo.Trim();
+        int safePageNumber = Math.Max(1, pageNumber);
+        bool fetchAll = pageSize <= 0;
+        int safePageSize = fetchAll ? 0 : Math.Clamp(pageSize, 1, 500);
+        int offset = 0;
+        if (!fetchAll)
+        {
+            long computedOffset = (long)(safePageNumber - 1) * safePageSize;
+            offset = computedOffset > int.MaxValue ? int.MaxValue : (int)computedOffset;
+        }
+
+        string whereClause = """
+            WHERE (@from_utc IS NULL OR created_at_utc >= @from_utc)
+              AND (@to_utc IS NULL OR created_at_utc <= @to_utc)
+              AND (@status IS NULL OR LOWER(status) = LOWER(@status))
+              AND (@reference_no IS NULL OR invoice_reference ILIKE '%' || @reference_no || '%')
+            """;
+
+        string paginationSql = fetchAll
+            ? string.Empty
+            : "LIMIT @limit OFFSET @offset";
+
+        string listSql = $"""
+            SELECT
+                index_guid,
+                trace_id,
+                invoice_uuid,
+                invoice_reference,
+                billed_entity_name,
+                amount,
+                space_uuid,
+                space_name,
+                decrypted_json,
+                status,
+                selected_channel_code,
+                payment_url,
+                created_at_utc,
+                updated_at_utc
+            FROM {GetQualifiedTableName("payment_checkout_session")}
+            {whereClause}
+            ORDER BY created_at_utc DESC
+            {paginationSql};
+            """;
+
+        var sessions = new List<PaymentSessionRecord>();
+        await using (var listCommand = new NpgsqlCommand(listSql, connection))
+        {
+            AddReportFilterParameters(listCommand, fromUtc, toUtc, normalizedStatus, normalizedReference);
+            if (!fetchAll)
+            {
+                listCommand.Parameters.AddWithValue("@limit", safePageSize);
+                listCommand.Parameters.AddWithValue("@offset", offset);
+            }
+
+            await using var reader = await listCommand.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                sessions.Add(MapPaymentSession(reader));
+            }
+        }
+
+        string countSql = $"""
+            SELECT COUNT(1)
+            FROM {GetQualifiedTableName("payment_checkout_session")}
+            {whereClause};
+            """;
+
+        int totalCount;
+        await using (var countCommand = new NpgsqlCommand(countSql, connection))
+        {
+            AddReportFilterParameters(countCommand, fromUtc, toUtc, normalizedStatus, normalizedReference);
+            object? countResult = await countCommand.ExecuteScalarAsync(cancellationToken);
+            totalCount = Convert.ToInt32(countResult ?? 0);
+        }
+
+        return new PaymentReportQueryResult
+        {
+            Sessions = sessions,
+            TotalCount = totalCount
+        };
+    }
+
     public async Task UpdatePaymentAttemptAsync(Guid indexGuid, string channelCode, string? paymentUrl, CancellationToken cancellationToken)
     {
         _logger.LogDebug("DB update payment attempt started. IndexGuid: {IndexGuid}, ChannelCode: {ChannelCode}", indexGuid, channelCode);
@@ -246,6 +417,332 @@ public sealed class PaymentDataStore : IPaymentDataStore
         {
             _logger.LogInformation("DB update status succeeded. IndexGuid: {IndexGuid}, Status: {Status}, Rows: {Rows}", indexGuid, status, rows);
         }
+    }
+
+    public async Task<UserAccountRecord?> GetUserByEmailAsync(string email, CancellationToken cancellationToken)
+    {
+        string normalizedEmail = NormalizeEmail(email);
+        await using var connection = await OpenReadyConnectionAsync(cancellationToken);
+
+        string querySql = $"""
+            SELECT
+                user_id,
+                email,
+                full_name,
+                password_hash,
+                password_salt,
+                created_at_utc,
+                updated_at_utc
+            FROM {GetQualifiedTableName("app_users")}
+            WHERE email = @email
+            LIMIT 1;
+            """;
+
+        await using var command = new NpgsqlCommand(querySql, connection);
+        command.Parameters.AddWithValue("@email", normalizedEmail);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return new UserAccountRecord
+        {
+            UserId = reader.GetGuid(reader.GetOrdinal("user_id")),
+            Email = reader["email"] as string ?? string.Empty,
+            FullName = reader["full_name"] as string,
+            PasswordHash = reader["password_hash"] as byte[] ?? [],
+            PasswordSalt = reader["password_salt"] as byte[] ?? [],
+            CreatedAtUtc = reader.GetDateTime(reader.GetOrdinal("created_at_utc")),
+            UpdatedAtUtc = reader.GetDateTime(reader.GetOrdinal("updated_at_utc"))
+        };
+    }
+
+    public async Task<UserAccountRecord?> GetUserByIdAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        await using var connection = await OpenReadyConnectionAsync(cancellationToken);
+
+        string querySql = $"""
+            SELECT
+                user_id,
+                email,
+                full_name,
+                password_hash,
+                password_salt,
+                created_at_utc,
+                updated_at_utc
+            FROM {GetQualifiedTableName("app_users")}
+            WHERE user_id = @user_id
+            LIMIT 1;
+            """;
+
+        await using var command = new NpgsqlCommand(querySql, connection);
+        command.Parameters.AddWithValue("@user_id", userId);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return new UserAccountRecord
+        {
+            UserId = reader.GetGuid(reader.GetOrdinal("user_id")),
+            Email = reader["email"] as string ?? string.Empty,
+            FullName = reader["full_name"] as string,
+            PasswordHash = reader["password_hash"] as byte[] ?? [],
+            PasswordSalt = reader["password_salt"] as byte[] ?? [],
+            CreatedAtUtc = reader.GetDateTime(reader.GetOrdinal("created_at_utc")),
+            UpdatedAtUtc = reader.GetDateTime(reader.GetOrdinal("updated_at_utc"))
+        };
+    }
+
+    public async Task<UserAccountRecord?> CreateFirstUserIfNoUsersAsync(
+        string email,
+        string? fullName,
+        byte[] passwordHash,
+        byte[] passwordSalt,
+        CancellationToken cancellationToken)
+    {
+        string normalizedEmail = NormalizeEmail(email);
+        await using var connection = await OpenReadyConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+
+        const long firstUserLockKey = 25022501;
+        await using (var lockCommand = new NpgsqlCommand("SELECT pg_advisory_xact_lock(@lock_key);", connection, transaction))
+        {
+            lockCommand.Parameters.AddWithValue("@lock_key", firstUserLockKey);
+            await lockCommand.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        string countSql = $"""
+            SELECT COUNT(1)
+            FROM {GetQualifiedTableName("app_users")};
+            """;
+        await using (var countCommand = new NpgsqlCommand(countSql, connection, transaction))
+        {
+            object? countResult = await countCommand.ExecuteScalarAsync(cancellationToken);
+            long totalUsers = Convert.ToInt64(countResult ?? 0);
+            if (totalUsers > 0)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return null;
+            }
+        }
+
+        Guid userId = Guid.NewGuid();
+        string insertSql = $"""
+            INSERT INTO {GetQualifiedTableName("app_users")}
+            (
+                user_id,
+                email,
+                full_name,
+                password_hash,
+                password_salt
+            )
+            VALUES
+            (
+                @user_id,
+                @email,
+                @full_name,
+                @password_hash,
+                @password_salt
+            )
+            RETURNING
+                user_id,
+                email,
+                full_name,
+                password_hash,
+                password_salt,
+                created_at_utc,
+                updated_at_utc;
+            """;
+
+        await using var insertCommand = new NpgsqlCommand(insertSql, connection, transaction);
+        insertCommand.Parameters.AddWithValue("@user_id", userId);
+        insertCommand.Parameters.AddWithValue("@email", normalizedEmail);
+        insertCommand.Parameters.AddWithValue("@full_name", (object?)fullName ?? DBNull.Value);
+        insertCommand.Parameters.AddWithValue("@password_hash", passwordHash);
+        insertCommand.Parameters.AddWithValue("@password_salt", passwordSalt);
+
+        NpgsqlDataReader reader;
+        try
+        {
+            reader = await insertCommand.ExecuteReaderAsync(cancellationToken);
+        }
+        catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UniqueViolation)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return null;
+        }
+
+        await using (reader)
+        {
+            if (!await reader.ReadAsync(cancellationToken))
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return null;
+            }
+
+            var createdUser = new UserAccountRecord
+            {
+                UserId = reader.GetGuid(reader.GetOrdinal("user_id")),
+                Email = reader["email"] as string ?? normalizedEmail,
+                FullName = reader["full_name"] as string,
+                PasswordHash = reader["password_hash"] as byte[] ?? [],
+                PasswordSalt = reader["password_salt"] as byte[] ?? [],
+                CreatedAtUtc = reader.GetDateTime(reader.GetOrdinal("created_at_utc")),
+                UpdatedAtUtc = reader.GetDateTime(reader.GetOrdinal("updated_at_utc"))
+            };
+
+            await reader.CloseAsync();
+            await transaction.CommitAsync(cancellationToken);
+            _logger.LogInformation("First application user created successfully. Email: {Email}", createdUser.Email);
+            return createdUser;
+        }
+    }
+
+    public async Task<Guid> CreatePasswordResetTokenAsync(Guid userId, byte[] tokenHash, DateTime expiresAtUtc, CancellationToken cancellationToken)
+    {
+        await using var connection = await OpenReadyConnectionAsync(cancellationToken);
+        Guid tokenId = Guid.NewGuid();
+
+        string insertSql = $"""
+            INSERT INTO {GetQualifiedTableName("password_reset_tokens")}
+            (
+                token_id,
+                user_id,
+                token_hash,
+                expires_at_utc
+            )
+            VALUES
+            (
+                @token_id,
+                @user_id,
+                @token_hash,
+                @expires_at_utc
+            );
+            """;
+
+        await using var command = new NpgsqlCommand(insertSql, connection);
+        command.Parameters.AddWithValue("@token_id", tokenId);
+        command.Parameters.AddWithValue("@user_id", userId);
+        command.Parameters.AddWithValue("@token_hash", tokenHash);
+        command.Parameters.AddWithValue("@expires_at_utc", expiresAtUtc);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+        return tokenId;
+    }
+
+    public async Task<bool> IsPasswordResetTokenValidAsync(Guid tokenId, byte[] tokenHash, CancellationToken cancellationToken)
+    {
+        await using var connection = await OpenReadyConnectionAsync(cancellationToken);
+        string querySql = $"""
+            SELECT 1
+            FROM {GetQualifiedTableName("password_reset_tokens")}
+            WHERE token_id = @token_id
+              AND token_hash = @token_hash
+              AND used_at_utc IS NULL
+              AND expires_at_utc >= NOW()
+            LIMIT 1;
+            """;
+
+        await using var command = new NpgsqlCommand(querySql, connection);
+        command.Parameters.AddWithValue("@token_id", tokenId);
+        command.Parameters.AddWithValue("@token_hash", tokenHash);
+        object? exists = await command.ExecuteScalarAsync(cancellationToken);
+        return exists is not null;
+    }
+
+    public async Task<bool> TryResetPasswordWithTokenAsync(Guid tokenId, byte[] tokenHash, byte[] newPasswordHash, byte[] newPasswordSalt, CancellationToken cancellationToken)
+    {
+        await using var connection = await OpenReadyConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+
+        string consumeTokenSql = $"""
+            UPDATE {GetQualifiedTableName("password_reset_tokens")}
+            SET used_at_utc = NOW()
+            WHERE token_id = @token_id
+              AND token_hash = @token_hash
+              AND used_at_utc IS NULL
+              AND expires_at_utc >= NOW()
+            RETURNING user_id;
+            """;
+
+        Guid userId;
+        await using (var consumeCommand = new NpgsqlCommand(consumeTokenSql, connection, transaction))
+        {
+            consumeCommand.Parameters.AddWithValue("@token_id", tokenId);
+            consumeCommand.Parameters.AddWithValue("@token_hash", tokenHash);
+            object? userIdResult = await consumeCommand.ExecuteScalarAsync(cancellationToken);
+            if (userIdResult is null || userIdResult == DBNull.Value)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return false;
+            }
+
+            userId = (Guid)userIdResult;
+        }
+
+        string updateUserSql = $"""
+            UPDATE {GetQualifiedTableName("app_users")}
+            SET
+                password_hash = @password_hash,
+                password_salt = @password_salt,
+                updated_at_utc = NOW()
+            WHERE user_id = @user_id;
+            """;
+
+        await using (var updateUserCommand = new NpgsqlCommand(updateUserSql, connection, transaction))
+        {
+            updateUserCommand.Parameters.AddWithValue("@password_hash", newPasswordHash);
+            updateUserCommand.Parameters.AddWithValue("@password_salt", newPasswordSalt);
+            updateUserCommand.Parameters.AddWithValue("@user_id", userId);
+            int updated = await updateUserCommand.ExecuteNonQueryAsync(cancellationToken);
+            if (updated == 0)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return false;
+            }
+        }
+
+        string invalidateOthersSql = $"""
+            UPDATE {GetQualifiedTableName("password_reset_tokens")}
+            SET used_at_utc = NOW()
+            WHERE user_id = @user_id
+              AND used_at_utc IS NULL
+              AND token_id <> @token_id;
+            """;
+
+        await using (var invalidateCommand = new NpgsqlCommand(invalidateOthersSql, connection, transaction))
+        {
+            invalidateCommand.Parameters.AddWithValue("@user_id", userId);
+            invalidateCommand.Parameters.AddWithValue("@token_id", tokenId);
+            await invalidateCommand.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+        return true;
+    }
+
+    public async Task UpdateUserPasswordAsync(Guid userId, byte[] newPasswordHash, byte[] newPasswordSalt, CancellationToken cancellationToken)
+    {
+        await using var connection = await OpenReadyConnectionAsync(cancellationToken);
+
+        string updateSql = $"""
+            UPDATE {GetQualifiedTableName("app_users")}
+            SET
+                password_hash = @password_hash,
+                password_salt = @password_salt,
+                updated_at_utc = NOW()
+            WHERE user_id = @user_id;
+            """;
+
+        await using var command = new NpgsqlCommand(updateSql, connection);
+        command.Parameters.AddWithValue("@password_hash", newPasswordHash);
+        command.Parameters.AddWithValue("@password_salt", newPasswordSalt);
+        command.Parameters.AddWithValue("@user_id", userId);
+        await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
     private async Task<NpgsqlConnection> OpenReadyConnectionAsync(CancellationToken cancellationToken)
@@ -378,6 +875,30 @@ public sealed class PaymentDataStore : IPaymentDataStore
 
                 CREATE UNIQUE INDEX IF NOT EXISTS ux_payment_channels_code_country_currency
                 ON {GetQualifiedTableName("payment_channels")} (channel_code, country, currency);
+
+                CREATE TABLE IF NOT EXISTS {GetQualifiedTableName("app_users")}
+                (
+                    user_id UUID PRIMARY KEY,
+                    email VARCHAR(255) NOT NULL UNIQUE,
+                    full_name VARCHAR(255) NULL,
+                    password_hash BYTEA NOT NULL,
+                    password_salt BYTEA NOT NULL,
+                    created_at_utc TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at_utc TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );
+
+                CREATE TABLE IF NOT EXISTS {GetQualifiedTableName("password_reset_tokens")}
+                (
+                    token_id UUID PRIMARY KEY,
+                    user_id UUID NOT NULL REFERENCES {GetQualifiedTableName("app_users")} (user_id) ON DELETE CASCADE,
+                    token_hash BYTEA NOT NULL,
+                    expires_at_utc TIMESTAMPTZ NOT NULL,
+                    used_at_utc TIMESTAMPTZ NULL,
+                    created_at_utc TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );
+
+                CREATE INDEX IF NOT EXISTS ix_password_reset_tokens_user_id
+                ON {GetQualifiedTableName("password_reset_tokens")} (user_id);
                 """;
 
             await using var command = new NpgsqlCommand(createSql, connection);
@@ -450,5 +971,78 @@ public sealed class PaymentDataStore : IPaymentDataStore
         }
 
         return "\"" + identifier.Replace("\"", "\"\"") + "\"";
+    }
+
+    private static string NormalizeEmail(string email)
+    {
+        return email.Trim().ToLowerInvariant();
+    }
+
+    private static PaymentSessionRecord MapPaymentSession(NpgsqlDataReader reader)
+    {
+        return new PaymentSessionRecord
+        {
+            IndexGuid = reader.GetGuid(reader.GetOrdinal("index_guid")),
+            TraceId = reader["trace_id"] as string,
+            InvoiceUuid = reader["invoice_uuid"] as string,
+            InvoiceReference = reader["invoice_reference"] as string,
+            BilledEntityName = reader["billed_entity_name"] as string,
+            Amount = reader.GetDecimal(reader.GetOrdinal("amount")),
+            SpaceUuid = reader["space_uuid"] as string,
+            SpaceName = reader["space_name"] as string,
+            DecryptedJson = reader["decrypted_json"] as string ?? string.Empty,
+            Status = reader["status"] as string ?? "Pending",
+            SelectedChannelCode = reader["selected_channel_code"] as string,
+            PaymentUrl = reader["payment_url"] as string,
+            CreatedAtUtc = reader.GetDateTime(reader.GetOrdinal("created_at_utc")),
+            UpdatedAtUtc = reader.GetDateTime(reader.GetOrdinal("updated_at_utc"))
+        };
+    }
+
+    private static void AddReportFilterParameters(
+        NpgsqlCommand command,
+        DateTime? fromUtc,
+        DateTime? toUtc,
+        string? status,
+        string? referenceNo)
+    {
+        AddNullableTimestamp(command, "@from_utc", fromUtc);
+        AddNullableTimestamp(command, "@to_utc", toUtc);
+        AddNullableText(command, "@status", status);
+        AddNullableText(command, "@reference_no", referenceNo);
+    }
+
+    private static void AddNullableTimestamp(NpgsqlCommand command, string parameterName, DateTime? value)
+    {
+        DateTime? utcValue = value.HasValue ? EnsureUtc(value.Value) : null;
+        var parameter = new NpgsqlParameter(parameterName, NpgsqlDbType.TimestampTz)
+        {
+            Value = utcValue.HasValue ? utcValue.Value : DBNull.Value
+        };
+        command.Parameters.Add(parameter);
+    }
+
+    private static void AddNullableText(NpgsqlCommand command, string parameterName, string? value)
+    {
+        var parameter = new NpgsqlParameter(parameterName, NpgsqlDbType.Text)
+        {
+            Value = string.IsNullOrWhiteSpace(value) ? DBNull.Value : value.Trim()
+        };
+        command.Parameters.Add(parameter);
+    }
+
+    private static DateTime EnsureUtc(DateTime value)
+    {
+        if (value.Kind == DateTimeKind.Utc)
+        {
+            return value;
+        }
+
+        if (value.Kind == DateTimeKind.Unspecified)
+        {
+            value = DateTime.SpecifyKind(value, DateTimeKind.Local);
+        }
+
+        return value.ToUniversalTime();
     }
 }

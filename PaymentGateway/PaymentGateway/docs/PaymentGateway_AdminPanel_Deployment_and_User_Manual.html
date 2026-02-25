@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Payment Gateway Admin Panel - Deployment and User Manual</title>
+  <style>
+    body { font-family: Arial, sans-serif; line-height: 1.45; color: #1b1b1b; }
+    h1 { font-size: 28px; margin-bottom: 8px; }
+    h2 { font-size: 21px; margin-top: 26px; }
+    h3 { font-size: 17px; margin-top: 18px; }
+    p, li { font-size: 13px; }
+    code, pre { font-family: "Courier New", monospace; font-size: 12px; }
+    pre { background: #f4f6f8; padding: 10px; border: 1px solid #d6dde5; overflow-x: auto; }
+    table { border-collapse: collapse; width: 100%; margin: 8px 0 14px 0; }
+    th, td { border: 1px solid #d0d7de; padding: 8px; text-align: left; font-size: 12px; vertical-align: top; }
+    th { background: #eef3f8; }
+    .meta { background: #f8fbff; border: 1px solid #dce6f1; padding: 10px; }
+  </style>
+</head>
+<body>
+  <h1>Payment Gateway Admin Panel</h1>
+  <h2 style="margin-top:6px;">Deployment Document and User Manual</h2>
+
+  <div class="meta">
+    <p><strong>Document Version:</strong> 1.0</p>
+    <p><strong>Prepared On:</strong> 25 February 2026</p>
+    <p><strong>Application:</strong> PaymentGateway (ASP.NET Core MVC, .NET 10)</p>
+    <p><strong>Audience:</strong> Client IT Operations Team, Application Administrators, Support Team</p>
+  </div>
+
+  <h2>1. Purpose</h2>
+  <p>This document provides end-to-end instructions to deploy, configure, run, and operate the Payment Gateway Admin Panel in client environments. It also includes a user manual for admin users.</p>
+
+  <h2>2. Application Summary</h2>
+  <ul>
+    <li>Application Type: ASP.NET Core MVC Web Application</li>
+    <li>Target Framework: <code>.NET 10</code></li>
+    <li>Database: PostgreSQL</li>
+    <li>Key Features:
+      <ul>
+        <li>Admin Login and Cookie-based authentication</li>
+        <li>First-user bootstrap from Login page (if no users exist)</li>
+        <li>Forgot/Reset password with single-use reset links</li>
+        <li>Change password for logged-in users</li>
+        <li>Payment reports with server-side filtering and pagination</li>
+      </ul>
+    </li>
+  </ul>
+
+  <h2>3. Environment Prerequisites</h2>
+  <h3>3.1 Mandatory</h3>
+  <ul>
+    <li>Linux server (recommended: Ubuntu 22.04 LTS or later)</li>
+    <li>.NET 10 Runtime (or SDK for build-on-server)</li>
+    <li>PostgreSQL 14+ (recommended 15+)</li>
+    <li>Nginx (recommended reverse proxy for production)</li>
+    <li>Network access to Xendit API endpoints</li>
+  </ul>
+
+  <h3>3.2 Recommended</h3>
+  <ul>
+    <li>Dedicated system user for app service</li>
+    <li>TLS certificate (Let’s Encrypt or enterprise CA)</li>
+    <li>Daily PostgreSQL backups</li>
+    <li>Centralized log collection/monitoring</li>
+  </ul>
+
+  <h2>4. Configuration Reference</h2>
+  <p>The application reads settings from <code>appsettings.json</code> and environment-specific overrides such as <code>appsettings.Production.json</code>.</p>
+
+  <table>
+    <tr><th>Key</th><th>Description</th><th>Example</th></tr>
+    <tr><td><code>ConnectionStrings:DefaultConnection</code></td><td>PostgreSQL connection string used by app</td><td><code>Host=localhost;Port=5432;Database=payment_gateway_db;Username=postgres;Password=***;</code></td></tr>
+    <tr><td><code>Database:Schema</code></td><td>Target schema for application tables</td><td><code>public</code></td></tr>
+    <tr><td><code>Xendit:BaseUrl</code></td><td>Xendit API base URL</td><td><code>https://api.xendit.co/</code></td></tr>
+    <tr><td><code>Xendit:ApiVersion</code></td><td>Xendit API version header value</td><td><code>2024-11-11</code></td></tr>
+    <tr><td><code>Xendit:SecretKey</code></td><td>Xendit secret key (sensitive)</td><td><code>***</code></td></tr>
+    <tr><td><code>Xendit:AppKey</code></td><td>Callback decryption key (sensitive)</td><td><code>***</code></td></tr>
+    <tr><td><code>Auth:ResetTokenExpiryMinutes</code></td><td>Password reset link validity</td><td><code>30</code></td></tr>
+    <tr><td><code>Email:SmtpHost</code>, <code>Email:From</code>, etc.</td><td>SMTP settings for password reset emails</td><td><code>smtp.company.com</code></td></tr>
+    <tr><td><code>Logging:File:Path</code></td><td>Directory for file logs</td><td><code>logs</code></td></tr>
+  </table>
+
+  <h3>Important Security Note</h3>
+  <p>Do not keep production secrets in source-controlled <code>appsettings.json</code>. Use <code>appsettings.Production.json</code>, environment variables, or a secret manager.</p>
+
+  <h2>5. Deployment Procedure (Production)</h2>
+
+  <h3>5.1 Publish Application</h3>
+  <pre>cd /path/to/PaymentGateway/PaymentGateway/PaymentGateway
+
+dotnet restore
+dotnet publish -c Release -o /opt/paymentgateway/app</pre>
+
+  <h3>5.2 Create Production Settings File</h3>
+  <p>Create <code>/opt/paymentgateway/app/appsettings.Production.json</code>:</p>
+  <pre>{
+  "Database": {
+    "Schema": "public"
+  },
+  "ConnectionStrings": {
+    "DefaultConnection": "Host=127.0.0.1;Port=5432;Database=payment_gateway_db;Username=pg_user;Password=STRONG_PASSWORD;"
+  },
+  "Xendit": {
+    "BaseUrl": "https://api.xendit.co/",
+    "ApiVersion": "2024-11-11",
+    "SecretKey": "REPLACE_ME",
+    "AppKey": "REPLACE_ME",
+    "StatementDescriptor": "Goods and Services"
+  },
+  "Auth": {
+    "ResetTokenExpiryMinutes": 30
+  },
+  "Email": {
+    "From": "no-reply@client-domain.example",
+    "SmtpHost": "smtp.client-domain.example",
+    "SmtpPort": 587,
+    "UseSsl": true,
+    "Username": "smtp_user",
+    "Password": "smtp_password"
+  },
+  "Logging": {
+    "File": {
+      "Path": "/var/log/paymentgateway",
+      "MinLevel": "Information"
+    }
+  }
+}</pre>
+
+  <h3>5.3 Create System User and Permissions</h3>
+  <pre>sudo useradd --system --no-create-home --shell /usr/sbin/nologin paymentgateway
+sudo mkdir -p /opt/paymentgateway/app /var/log/paymentgateway
+sudo chown -R paymentgateway:paymentgateway /opt/paymentgateway /var/log/paymentgateway</pre>
+
+  <h3>5.4 Configure systemd Service</h3>
+  <p>Create <code>/etc/systemd/system/paymentgateway.service</code>:</p>
+  <pre>[Unit]
+Description=Payment Gateway Admin Panel
+After=network.target
+
+[Service]
+WorkingDirectory=/opt/paymentgateway/app
+ExecStart=/usr/bin/dotnet /opt/paymentgateway/app/PaymentGateway.dll
+User=paymentgateway
+Group=paymentgateway
+Environment=ASPNETCORE_ENVIRONMENT=Production
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target</pre>
+
+  <p>Enable and start service:</p>
+  <pre>sudo systemctl daemon-reload
+sudo systemctl enable paymentgateway
+sudo systemctl start paymentgateway
+sudo systemctl status paymentgateway</pre>
+
+  <h3>5.5 Configure Nginx Reverse Proxy (Unix Socket)</h3>
+  <p>The app listens on Unix socket in Production: <code>/tmp/paymentgateway.sock</code>.</p>
+  <pre>server {
+    listen 80;
+    server_name client-domain.example;
+
+    location / {
+        proxy_pass http://unix:/tmp/paymentgateway.sock;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}</pre>
+
+  <p>Test and reload Nginx:</p>
+  <pre>sudo nginx -t
+sudo systemctl reload nginx</pre>
+
+  <h3>5.6 HTTPS (Recommended)</h3>
+  <p>Configure TLS certificate and update Nginx server block for HTTPS using your standard certificate process.</p>
+
+  <h2>6. Database Initialization Behavior</h2>
+  <ul>
+    <li>On startup/first DB call, app ensures database exists (if DB user has permission).</li>
+    <li>Ensures required schema and tables exist.</li>
+    <li>Seeds payment channel master data automatically.</li>
+    <li>User table is not pre-seeded from config.</li>
+  </ul>
+
+  <h2>7. First Admin User Onboarding</h2>
+  <ol>
+    <li>Open application URL.</li>
+    <li>Login page appears (<code>/account/login</code>).</li>
+    <li>If no user exists in DB, first successful login submission creates the first admin user.</li>
+    <li>User is signed in and redirected to Report page.</li>
+  </ol>
+
+  <h2>8. Admin User Manual</h2>
+
+  <h3>8.1 Login</h3>
+  <ul>
+    <li>Navigate to application URL.</li>
+    <li>Enter registered email and password.</li>
+    <li>Click <strong>Sign In</strong>.</li>
+  </ul>
+
+  <h3>8.2 Forgot Password / Reset Password</h3>
+  <ul>
+    <li>Click <strong>Forgot password</strong> on Login page.</li>
+    <li>Enter registered email and submit.</li>
+    <li>System sends a one-time reset link to configured email.</li>
+    <li>Open link, enter new password, and submit.</li>
+    <li>Link is invalid after single use or expiry.</li>
+  </ul>
+
+  <h3>8.3 Change Password</h3>
+  <ul>
+    <li>After login, open <strong>Security</strong> in left menu.</li>
+    <li>Enter current password and new password.</li>
+    <li>Save new password.</li>
+  </ul>
+
+  <h3>8.4 Report Page</h3>
+  <ul>
+    <li>Access via left menu <strong>Reports</strong>.</li>
+    <li>Use filters: DateTime range, Status, Reference No.</li>
+    <li>Use page size: <strong>10, 25, 50, 100, All</strong>.</li>
+    <li>Use pagination controls: <strong>First, Prev, page numbers, Next, Last</strong>.</li>
+  </ul>
+
+  <h2>9. Operations Runbook</h2>
+
+  <h3>9.1 Service Operations</h3>
+  <pre>sudo systemctl start paymentgateway
+sudo systemctl stop paymentgateway
+sudo systemctl restart paymentgateway
+sudo systemctl status paymentgateway</pre>
+
+  <h3>9.2 Logs</h3>
+  <ul>
+    <li>Systemd logs: <code>journalctl -u paymentgateway -f</code></li>
+    <li>Application file logs: configured via <code>Logging:File:Path</code></li>
+  </ul>
+
+  <h3>9.3 Backup</h3>
+  <pre>pg_dump -h 127.0.0.1 -U pg_user -d payment_gateway_db -Fc -f payment_gateway_db_YYYYMMDD.dump</pre>
+
+  <h3>9.4 Restore</h3>
+  <pre>pg_restore -h 127.0.0.1 -U pg_user -d payment_gateway_db -c payment_gateway_db_YYYYMMDD.dump</pre>
+
+  <h2>10. Troubleshooting</h2>
+
+  <table>
+    <tr><th>Issue</th><th>Possible Cause</th><th>Resolution</th></tr>
+    <tr><td>Blank/404 at root URL</td><td>Old process running old build</td><td>Restart service and confirm root redirects to <code>/account/login</code></td></tr>
+    <tr><td>Cannot login</td><td>No user exists or wrong credentials</td><td>For first setup, use login form to create first user; otherwise validate credentials</td></tr>
+    <tr><td>Reset email not received</td><td>SMTP not configured or blocked</td><td>Verify <code>Email</code> settings and mail server connectivity</td></tr>
+    <tr><td>Database errors</td><td>Wrong connection string/permissions</td><td>Validate PostgreSQL credentials and DB access from app host</td></tr>
+    <tr><td>Nginx 502</td><td>App service down or socket unavailable</td><td>Check <code>systemctl status paymentgateway</code> and socket path</td></tr>
+  </table>
+
+  <h2>11. Endpoint Reference (High-Level)</h2>
+  <ul>
+    <li><code>/</code> -> redirects to <code>/account/login</code></li>
+    <li><code>/account/login</code> (GET/POST)</li>
+    <li><code>/account/forgot-password</code> (GET/POST)</li>
+    <li><code>/account/reset-password</code> (GET/POST)</li>
+    <li><code>/account/change-password</code> (GET/POST)</li>
+    <li><code>/report</code> (GET, authenticated)</li>
+  </ul>
+
+  <h2>12. Deployment Handover Checklist</h2>
+  <ul>
+    <li>Production secrets are not in source files</li>
+    <li>Database connection verified</li>
+    <li>Xendit connectivity verified</li>
+    <li>SMTP tested for reset email</li>
+    <li>First admin login tested</li>
+    <li>Report filters and pagination tested</li>
+    <li>Nginx + TLS tested</li>
+    <li>Backup and restore tested</li>
+  </ul>
+
+  <p><strong>End of Document</strong></p>
+</body>
+</html>

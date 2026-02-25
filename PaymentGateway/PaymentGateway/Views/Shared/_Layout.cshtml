@@ -1,16 +1,75 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>@ViewData["Title"] - PaymentGateway</title>
+    <title>@ViewData["Title"] - PaymentGateway Admin</title>
     <script type="importmap"></script>
     <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/PaymentGateway.styles.css" asp-append-version="true" />
 </head>
-<body>
-            @RenderBody()
+@{
+    string currentPath = Context.Request.Path.Value ?? string.Empty;
+    bool isPaymentFlow = Context.Request.Path.StartsWithSegments("/payment", StringComparison.OrdinalIgnoreCase)
+        || Context.Request.Path.StartsWithSegments("/callback", StringComparison.OrdinalIgnoreCase);
+    bool isAuthenticated = User.Identity?.IsAuthenticated == true;
+    Func<string, string> activeClass = segment => currentPath.StartsWith(segment, StringComparison.OrdinalIgnoreCase) ? "active" : string.Empty;
+}
+<body class="@(isPaymentFlow ? "payment-flow-body" : (isAuthenticated ? "admin-body" : "guest-body"))">
+    @if (isPaymentFlow)
+    {
+        @RenderBody()
+    }
+    else if (isAuthenticated)
+    {
+        <div class="admin-shell">
+            <aside class="admin-sidebar">
+                <div class="brand-block">
+                    <span class="brand-icon">PG</span>
+                    <div>
+                        <div class="brand-title">Payment Gateway</div>
+                        <div class="brand-subtitle">Admin Panel</div>
+                    </div>
+                </div>
+
+                <nav class="admin-nav">
+                    <a class="admin-nav-link @activeClass("/report")" asp-controller="Report" asp-action="Index">Reports</a>
+                    <a class="admin-nav-link @activeClass("/account/change-password")" asp-controller="Account" asp-action="ChangePassword">Security</a>
+                </nav>
+
+                <div class="sidebar-footer">
+                    <div class="user-caption">Signed in as</div>
+                    <div class="user-name" title="@User.Identity?.Name">@User.Identity?.Name</div>
+                    <form asp-controller="Account" asp-action="Logout" method="post">
+                        <button type="submit" class="btn btn-light w-100 mt-2">Logout</button>
+                    </form>
+                </div>
+            </aside>
+
+            <div class="admin-main">
+                <header class="admin-topbar">
+                    <h1>@(ViewData["Title"] ?? "Dashboard")</h1>
+                    <span class="topbar-pill">Payments Ops</span>
+                </header>
+                <main class="admin-content">
+                    @RenderBody()
+                </main>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="guest-shell">
+            <header class="guest-header">
+                <a class="guest-brand" asp-controller="Account" asp-action="Login">Payment Gateway Admin</a>
+            </header>
+            <main class="guest-main">
+                @RenderBody()
+            </main>
+        </div>
+    }
+
     <script src="~/lib/jquery/dist/jquery.min.js"></script>
     <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
     <script src="~/js/site.js" asp-append-version="true"></script>
