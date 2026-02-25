@@ -1,0 +1,247 @@
+@model PaymentCheckoutViewModel
+@{
+    ViewData["Title"] = "Payment Result";
+    var success = string.Equals(Model.Status, "Success", StringComparison.OrdinalIgnoreCase);
+    var heading = success ? "Payment Completed" : "Payment Failed";
+    var subheading = success
+        ? "Your transaction has been confirmed and recorded successfully."
+        : "The transaction could not be completed. Please review and try again.";
+}
+
+<div class="result-shell">
+    <div class="result-card">
+        <div class="status-header @(success ? "success" : "failed")">
+            <div class="status-icon">@(success ? "✓" : "!")</div>
+            <div>
+                <h1>@heading</h1>
+                <p>@subheading</p>
+            </div>
+            <span class="status-pill">@Model.Status</span>
+        </div>
+
+        <div class="detail-grid">
+            <div><span>Refernce No</span><strong>@Model.IndexGuid</strong></div>
+            <div><span>Customer</span><strong>@(Model.CustomerName ?? "-")</strong></div>
+            <div><span>Invoice Reference</span><strong>@(Model.InvoiceReference ?? "-")</strong></div>
+            <div><span>Amount</span><strong>@Model.Amount.ToString("N2") @Model.Currency</strong></div>
+            <div><span>Space</span><strong>@(Model.SpaceName ?? "-")</strong></div>
+            <div><span>Transaction Status</span><strong>@Model.Status</strong></div>
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(Model.ErrorMessage))
+        {
+            <div class="error-box">@Model.ErrorMessage</div>
+        }
+
+        @if (success)
+        {
+            <div class="countdown-box">
+                Redirecting back to app in <strong id="countdownSeconds">6</strong> seconds...
+            </div>
+        }
+
+        <div class="actions">
+            @if (!success)
+            {
+                <a class="btn primary" asp-action="Checkout" asp-controller="Payment" asp-route-indexGuid="@Model.IndexGuid">Try Again</a>
+            }
+        </div>
+    </div>
+</div>
+
+<style>
+    :root {
+        --bg: #f6f4f3;
+        --card: #ffffff;
+        --line: #e7dfdb;
+        --text: #1f1a18;
+        --muted: #72655f;
+        --ok: #0f9d58;
+        --ok-soft: #e8f7ef;
+        --fail: #d13f2f;
+        --fail-soft: #fff0ed;
+        --primary: #ff5724;
+    }
+
+    .result-shell {
+        min-height: 100vh;
+        background: radial-gradient(circle at top left, #fff, var(--bg));
+        padding: 28px 14px;
+        display: flex;
+        justify-content: center;
+        align-items: flex-start;
+    }
+
+    .result-card {
+        width: 100%;
+        max-width: 860px;
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        box-shadow: 0 16px 30px rgba(34, 20, 12, 0.08);
+        overflow: hidden;
+    }
+
+    .status-header {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        gap: 14px;
+        align-items: center;
+        padding: 18px 20px;
+        border-bottom: 1px solid var(--line);
+    }
+
+    .status-header.success { background: var(--ok-soft); }
+    .status-header.failed { background: var(--fail-soft); }
+
+    .status-icon {
+        width: 42px;
+        height: 42px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 800;
+        font-size: 1.1rem;
+        color: #fff;
+    }
+
+    .status-header.success .status-icon { background: var(--ok); }
+    .status-header.failed .status-icon { background: var(--fail); }
+
+    .status-header h1 {
+        margin: 0;
+        font-size: 1.35rem;
+        color: var(--text);
+    }
+
+    .status-header p {
+        margin: 4px 0 0;
+        color: var(--muted);
+        font-size: 0.92rem;
+    }
+
+    .status-pill {
+        padding: 6px 12px;
+        border-radius: 999px;
+        font-weight: 700;
+        font-size: 0.8rem;
+        background: #fff;
+        border: 1px solid var(--line);
+        color: var(--text);
+    }
+
+    .detail-grid {
+        padding: 18px 20px;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 12px;
+    }
+
+    .detail-grid div {
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 11px 12px;
+        background: #fff;
+    }
+
+    .detail-grid span {
+        display: block;
+        color: var(--muted);
+        font-size: 0.74rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-bottom: 4px;
+    }
+
+    .detail-grid strong {
+        color: var(--text);
+        font-size: 0.95rem;
+        word-break: break-word;
+    }
+
+    .error-box {
+        margin: 0 20px;
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid #ffcbc4;
+        background: #fff1ef;
+        color: #a83427;
+        font-weight: 600;
+    }
+
+    .countdown-box {
+        margin: 0 20px;
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid #d7e9dc;
+        background: #eefaf2;
+        color: #1f6f3d;
+        font-weight: 600;
+    }
+
+    .actions {
+        padding: 18px 20px 22px;
+        display: flex;
+        gap: 10px;
+        justify-content: flex-end;
+        flex-wrap: wrap;
+    }
+
+    .btn {
+        text-decoration: none;
+        border-radius: 10px;
+        padding: 10px 14px;
+        font-weight: 700;
+        font-size: 0.9rem;
+        border: 1px solid transparent;
+    }
+
+    .btn.primary {
+        background: var(--primary);
+        color: #fff;
+    }
+
+    .btn.primary:hover { background: #ea4d1b; }
+
+    .btn.secondary {
+        background: #fff;
+        color: var(--text);
+        border-color: var(--line);
+    }
+
+    .btn.secondary:hover { background: #faf8f7; }
+</style>
+
+<script>
+    (function () {
+        var success = @success.ToString().ToLowerInvariant();
+        var payload = JSON.stringify({ success: success });
+        var countdownEl = document.getElementById('countdownSeconds');
+
+        function notifyHost() {
+            debugger;
+            if (window.ReactNativeWebView) {
+                window.ReactNativeWebView.postMessage(payload);
+            } else if (window.parent) {
+                window.parent.postMessage(payload, '*');
+            }
+        }
+
+        if (success) {
+            var seconds = 6;
+            var timer = setInterval(function () {
+                seconds -= 1;
+                if (countdownEl) {
+                    countdownEl.textContent = String(seconds);
+                }
+                if (seconds <= 0) {
+                    clearInterval(timer);
+                    notifyHost();
+                }
+            }, 1000);
+        } else {
+            notifyHost();
+        }
+    })();
+</script>
