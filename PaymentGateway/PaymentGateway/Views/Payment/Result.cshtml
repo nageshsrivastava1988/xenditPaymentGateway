@@ -213,7 +213,7 @@
     .btn.secondary:hover { background: #faf8f7; }
 </style>
 
-<script>
+@* <script>
     (function () {
         var success = @success.ToString().ToLowerInvariant();
         var payload = JSON.stringify({ success: success });
@@ -242,6 +242,39 @@
             }, 1000);
         } else {
             notifyHost();
+        }
+    })();
+</script> *@
+
+<script>
+    (function () {
+        var success = @success.ToString().ToLowerInvariant();
+
+        function notifyArchie(successValue) {
+            var message = JSON.stringify({ success: successValue });
+
+            if (window.ReactNativeWebView && typeof window.ReactNativeWebView.postMessage === "function") {
+                window.ReactNativeWebView.postMessage(message);
+                return true;
+            }
+
+            if (window.parent && window.parent !== window && typeof window.parent.postMessage === "function") {
+                window.parent.postMessage(message, "*");
+                return true;
+            }
+
+            return false;
+        }
+
+        if (success) {
+            setTimeout(function () {
+                var sent = notifyArchie(true);
+
+                // Optional fallback for Archie's documented URL-param method
+                if (!sent) {
+                    window.location.href = window.location.pathname + "?success=true";
+                }
+            }, 1000);
         }
     })();
 </script>
