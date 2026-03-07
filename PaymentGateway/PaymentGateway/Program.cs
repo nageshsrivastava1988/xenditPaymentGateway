@@ -1,8 +1,37 @@
-using PaymentGateway.Helpers;
 using PaymentGateway.Services;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Serilog;
+using Serilog.Events;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Logging.ClearProviders();
+builder.Host.UseSerilog((context, _, loggerConfiguration) =>
+{
+    string logDirectory = context.Configuration["Logging:File:Path"] ?? Path.Combine(AppContext.BaseDirectory, "logs");
+    if (!Path.IsPathRooted(logDirectory))
+    {
+        logDirectory = Path.Combine(context.HostingEnvironment.ContentRootPath, logDirectory);
+    }
+
+    Directory.CreateDirectory(logDirectory);
+
+    var fileMinLevel = ParseLogEventLevel(context.Configuration["Logging:File:MinLevel"], LogEventLevel.Information);
+    var microsoftMinLevel = ParseLogEventLevel(context.Configuration["Logging:LogLevel:Microsoft"], LogEventLevel.Warning);
+    var aspNetCoreMinLevel = ParseLogEventLevel(context.Configuration["Logging:LogLevel:Microsoft.AspNetCore"], LogEventLevel.Warning);
+
+    loggerConfiguration
+        .MinimumLevel.Is(fileMinLevel)
+        .MinimumLevel.Override("Microsoft", microsoftMinLevel)
+        .MinimumLevel.Override("Microsoft.AspNetCore", aspNetCoreMinLevel)
+        .Enrich.FromLogContext()
+        .WriteTo.Async(writeTo => writeTo.File(
+            path: Path.Combine(logDirectory, "app-.log"),
+            rollingInterval: RollingInterval.Day,
+            retainedFileCountLimit: 31,
+            shared: true,
+            outputTemplate: "{Timestamp:O} [{Level:u3}] {SourceContext} | {Message:lj}{NewLine}{Exception}"));
+});
 
 builder.WebHost.ConfigureKestrel((context, options) =>
 {
@@ -34,18 +63,6 @@ builder.Services.AddHttpClient("Xendit", client =>
     client.BaseAddress = new Uri(builder.Configuration["Xendit:BaseUrl"] ?? "https://api.xendit.co/");
     client.Timeout = TimeSpan.FromSeconds(30);
 });
-builder.Logging.ClearProviders();
-builder.Logging.AddConsole();
-builder.Logging.AddDebug();
-var logDirectory = builder.Configuration["Logging:File:Path"] ?? Path.Combine(AppContext.BaseDirectory, "logs");
-if (!Path.IsPathRooted(logDirectory))
-{
-    logDirectory = Path.Combine(builder.Environment.ContentRootPath, logDirectory);
-}
-var fileMinLevel = Enum.TryParse(builder.Configuration["Logging:File:MinLevel"], true, out LogLevel parsedLevel)
-    ? parsedLevel
-    : LogLevel.Information;
-builder.Logging.AddProvider(new FileLoggerProvider(logDirectory, fileMinLevel));
 
 var app = builder.Build();
 
@@ -57,7 +74,7 @@ if (!app.Environment.IsDevelopment())
     app.UseHsts();
 }
 
-app.UseHttpsRedirection();
+//app.UseHttpsRedirection();
 app.UseRouting();
 
 app.UseAuthentication();
@@ -71,5 +88,18 @@ app.MapControllerRoute(
     pattern: "{controller=Account}/{action=Login}/{id?}")
     .WithStaticAssets();
 
+try
+{
+    await app.RunAsync();
+}
+finally
+{
+    await Log.CloseAndFlushAsync();
+}
 
-app.Run();
+static LogEventLevel ParseLogEventLevel(string? value, LogEventLevel fallback)
+{
+    return Enum.TryParse<LogEventLevel>(value, true, out var parsedLevel)
+        ? parsedLevel
+        : fallback;
+}
