@@ -1,15 +1,3 @@
-using System.Net.Http.Headers;
-using System.Net.Http.Json;
-using System.Text;
-using System.Text.Json;
-using System.Diagnostics;
-using Microsoft.AspNetCore.Mvc;
-using Npgsql;
-using Org.BouncyCastle.Crypto;
-using PaymentGateway.Helpers;
-using PaymentGateway.Models;
-using PaymentGateway.Services;
-
 namespace PaymentGateway.Controllers;
 
 public class PaymentController : Controller
@@ -18,17 +6,20 @@ public class PaymentController : Controller
     private readonly IConfiguration _configuration;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IPaymentDataStore _paymentDataStore;
+    private readonly IArchiePaymentNotifier _archiePaymentNotifier;
 
     public PaymentController(
         ILogger<PaymentController> logger,
         IConfiguration configuration,
         IHttpClientFactory httpClientFactory,
-        IPaymentDataStore paymentDataStore)
+        IPaymentDataStore paymentDataStore,
+        IArchiePaymentNotifier archiePaymentNotifier)
     {
         _logger = logger;
         _configuration = configuration;
         _httpClientFactory = httpClientFactory;
         _paymentDataStore = paymentDataStore;
+        _archiePaymentNotifier = archiePaymentNotifier;
     }
 
     [HttpGet("callback")]
@@ -189,6 +180,15 @@ public class PaymentController : Controller
     {
         _logger.LogInformation("Success endpoint hit. IndexGuid: {IndexGuid}", indexGuid);
         await _paymentDataStore.UpdateStatusAsync(indexGuid, "Success", cancellationToken);
+        try
+        {
+            await _archiePaymentNotifier.NotifyPaymentResultIfNeededAsync(indexGuid, "Success", cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Archie success notification failed. IndexGuid: {IndexGuid}", indexGuid);
+        }
+
         var session = await _paymentDataStore.GetByIndexGuidAsync(indexGuid, cancellationToken);
         if (session is null)
         {
@@ -206,6 +206,15 @@ public class PaymentController : Controller
     {
         _logger.LogInformation("Failed endpoint hit. IndexGuid: {IndexGuid}", indexGuid);
         await _paymentDataStore.UpdateStatusAsync(indexGuid, "Failed", cancellationToken);
+        try
+        {
+            await _archiePaymentNotifier.NotifyPaymentResultIfNeededAsync(indexGuid, "Failed", cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Archie failure notification failed. IndexGuid: {IndexGuid}", indexGuid);
+        }
+
         var session = await _paymentDataStore.GetByIndexGuidAsync(indexGuid, cancellationToken);
         if (session is null)
         {
@@ -231,6 +240,16 @@ public class PaymentController : Controller
         }
 
         await _paymentDataStore.UpdateStatusAsync(indexGuid, status, cancellationToken);
+        try
+        {
+            await _archiePaymentNotifier.NotifyPaymentResultIfNeededAsync(indexGuid, status, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Archie webhook notification failed. IndexGuid: {IndexGuid}, Status: {Status}", indexGuid, status);
+            return StatusCode(StatusCodes.Status500InternalServerError, "Unable to notify Archie.");
+        }
+
         _logger.LogInformation("Webhook updated payment status. IndexGuid: {IndexGuid}, Status: {Status}", indexGuid, status);
         return Ok(new { success = true });
     }

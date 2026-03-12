@@ -1,10 +1,3 @@
-using System.Security.Claims;
-using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Authentication.Cookies;
-using Microsoft.AspNetCore.Authorization;
-using PaymentGateway.Helpers;
-using PaymentGateway.Services;
-
 namespace PaymentGateway.Controllers;
 
 public class AccountController : Controller

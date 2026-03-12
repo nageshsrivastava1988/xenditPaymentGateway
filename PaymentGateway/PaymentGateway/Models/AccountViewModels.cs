@@ -1,5 +1,3 @@
-using System.ComponentModel.DataAnnotations;
-
 namespace PaymentGateway.Models;
 
 public sealed class LoginViewModel

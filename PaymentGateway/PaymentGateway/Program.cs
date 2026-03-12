@@ -1,8 +1,3 @@
-using PaymentGateway.Services;
-using Microsoft.AspNetCore.Authentication.Cookies;
-using Serilog;
-using Serilog.Events;
-
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Logging.ClearProviders();
@@ -49,6 +44,7 @@ builder.WebHost.ConfigureKestrel((context, options) =>
 builder.Services.AddControllersWithViews();
 builder.Services.AddSingleton<IPaymentDataStore, PaymentDataStore>();
 builder.Services.AddSingleton<IAccountEmailService, AccountEmailService>();
+builder.Services.AddSingleton<IArchiePaymentNotifier, ArchiePaymentNotifier>();
 builder.Services
     .AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
@@ -61,6 +57,11 @@ builder.Services
 builder.Services.AddHttpClient("Xendit", client =>
 {
     client.BaseAddress = new Uri(builder.Configuration["Xendit:BaseUrl"] ?? "https://api.xendit.co/");
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
+builder.Services.AddHttpClient("Archie", client =>
+{
+    client.BaseAddress = new Uri(builder.Configuration["Archie:BaseUrl"] ?? "https://api.archieapp.co/");
     client.Timeout = TimeSpan.FromSeconds(30);
 });
 
@@ -88,6 +89,8 @@ app.MapControllerRoute(
     pattern: "{controller=Account}/{action=Login}/{id?}")
     .WithStaticAssets();
 
+app.Logger.LogInformation("{ProjectBanner}", BuildProjectBanner(app.Environment.EnvironmentName));
+
 try
 {
     await app.RunAsync();
@@ -102,4 +105,28 @@ static LogEventLevel ParseLogEventLevel(string? value, LogEventLevel fallback)
     return Enum.TryParse<LogEventLevel>(value, true, out var parsedLevel)
         ? parsedLevel
         : fallback;
+}
+
+static string BuildProjectBanner(string environmentName)
+{
+    return $$"""
+
+    
+    ██████╗  █████╗ ██╗   ██╗███╗   ███╗███████╗███╗   ██╗████████╗
+    ██╔══██╗██╔══██╗╚██╗ ██╔╝████╗ ████║██╔════╝████╗  ██║╚══██╔══╝
+    ██████╔╝███████║ ╚████╔╝ ██╔████╔██║█████╗  ██╔██╗ ██║   ██║
+    ██╔═══╝ ██╔══██║  ╚██╔╝  ██║╚██╔╝██║██╔══╝  ██║╚██╗██║   ██║
+    ██║     ██║  ██║   ██║   ██║ ╚═╝ ██║███████╗██║ ╚████║   ██║
+    ╚═╝     ╚═╝  ╚═╝   ╚═╝   ╚═╝     ╚═╝╚══════╝╚═╝  ╚═══╝   ╚═╝
+
+     ██████╗  █████╗ ████████╗███████╗██╗    ██╗ █████╗ ██╗   ██╗
+    ██╔════╝ ██╔══██╗╚══██╔══╝██╔════╝██║    ██║██╔══██╗╚██╗ ██╔╝
+    ██║  ███╗███████║   ██║   █████╗  ██║ █╗ ██║███████║ ╚████╔╝
+    ██║   ██║██╔══██║   ██║   ██╔══╝  ██║███╗██║██╔══██║  ╚██╔╝
+    ╚██████╔╝██║  ██║   ██║   ███████╗╚███╔███╔╝██║  ██║   ██║
+     ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚══════╝ ╚══╝╚══╝ ╚═╝  ╚═╝   ╚═╝
+
+    Environment: {{environmentName}}
+    Started At : {{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss zzz}}
+    """;
 }

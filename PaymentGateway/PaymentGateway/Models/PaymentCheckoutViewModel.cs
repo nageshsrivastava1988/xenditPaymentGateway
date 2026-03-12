@@ -40,6 +40,8 @@ public sealed class PaymentSessionRecord
     public string? SpaceName { get; set; }
     public string DecryptedJson { get; set; } = string.Empty;
     public string Status { get; set; } = "Pending";
+    public string? ArchieNotifiedStatus { get; set; }
+    public DateTime? ArchieNotifiedAtUtc { get; set; }
     public string? SelectedChannelCode { get; set; }
     public string? PaymentUrl { get; set; }
     public DateTime CreatedAtUtc { get; set; }

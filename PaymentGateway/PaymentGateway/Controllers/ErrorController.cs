@@ -1,6 +1,3 @@
-using System.Diagnostics;
-using Microsoft.AspNetCore.Authorization;
-
 namespace PaymentGateway.Controllers;
 
 [AllowAnonymous]

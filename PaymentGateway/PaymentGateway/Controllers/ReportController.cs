@@ -1,7 +1,3 @@
-using Microsoft.AspNetCore.Authorization;
-using PaymentGateway.Models;
-using PaymentGateway.Services;
-
 namespace PaymentGateway.Controllers;
 
 [Authorize]

@@ -1,7 +1,3 @@
-using Npgsql;
-using NpgsqlTypes;
-using PaymentGateway.Models;
-
 namespace PaymentGateway.Services;
 
 public interface IPaymentDataStore
@@ -20,6 +16,7 @@ public interface IPaymentDataStore
     Task<List<PaymentChannelOptionViewModel>> GetChannelOptionsAsync(decimal amount, CancellationToken cancellationToken);
     Task UpdatePaymentAttemptAsync(Guid indexGuid, string channelCode, string? paymentUrl, CancellationToken cancellationToken);
     Task UpdateStatusAsync(Guid indexGuid, string status, CancellationToken cancellationToken);
+    Task MarkArchieNotifiedAsync(Guid indexGuid, string status, CancellationToken cancellationToken);
     Task<UserAccountRecord?> GetUserByEmailAsync(string email, CancellationToken cancellationToken);
     Task<UserAccountRecord?> GetUserByIdAsync(Guid userId, CancellationToken cancellationToken);
     Task<UserAccountRecord?> CreateFirstUserIfNoUsersAsync(
@@ -118,6 +115,8 @@ public sealed class PaymentDataStore : IPaymentDataStore
                 space_name,
                 decrypted_json,
                 status,
+                archie_notified_status,
+                archie_notified_at_utc,
                 selected_channel_code,
                 payment_url,
                 created_at_utc,
@@ -149,6 +148,8 @@ public sealed class PaymentDataStore : IPaymentDataStore
             SpaceName = reader["space_name"] as string,
             DecryptedJson = reader["decrypted_json"] as string ?? string.Empty,
             Status = reader["status"] as string ?? "Pending",
+            ArchieNotifiedStatus = reader["archie_notified_status"] as string,
+            ArchieNotifiedAtUtc = reader["archie_notified_at_utc"] is DBNull ? null : reader.GetDateTime(reader.GetOrdinal("archie_notified_at_utc")),
             SelectedChannelCode = reader["selected_channel_code"] as string,
             PaymentUrl = reader["payment_url"] as string,
             CreatedAtUtc = reader.GetDateTime(reader.GetOrdinal("created_at_utc")),
@@ -231,6 +232,8 @@ public sealed class PaymentDataStore : IPaymentDataStore
                 space_name,
                 decrypted_json,
                 status,
+                archie_notified_status,
+                archie_notified_at_utc,
                 selected_channel_code,
                 payment_url,
                 created_at_utc,
@@ -259,6 +262,8 @@ public sealed class PaymentDataStore : IPaymentDataStore
                 SpaceName = reader["space_name"] as string,
                 DecryptedJson = reader["decrypted_json"] as string ?? string.Empty,
                 Status = reader["status"] as string ?? "Pending",
+                ArchieNotifiedStatus = reader["archie_notified_status"] as string,
+                ArchieNotifiedAtUtc = reader["archie_notified_at_utc"] is DBNull ? null : reader.GetDateTime(reader.GetOrdinal("archie_notified_at_utc")),
                 SelectedChannelCode = reader["selected_channel_code"] as string,
                 PaymentUrl = reader["payment_url"] as string,
                 CreatedAtUtc = reader.GetDateTime(reader.GetOrdinal("created_at_utc")),
@@ -315,6 +320,8 @@ public sealed class PaymentDataStore : IPaymentDataStore
                 space_name,
                 decrypted_json,
                 status,
+                archie_notified_status,
+                archie_notified_at_utc,
                 selected_channel_code,
                 payment_url,
                 created_at_utc,
@@ -416,6 +423,34 @@ public sealed class PaymentDataStore : IPaymentDataStore
         else
         {
             _logger.LogInformation("DB update status succeeded. IndexGuid: {IndexGuid}, Status: {Status}, Rows: {Rows}", indexGuid, status, rows);
+        }
+    }
+
+    public async Task MarkArchieNotifiedAsync(Guid indexGuid, string status, CancellationToken cancellationToken)
+    {
+        _logger.LogDebug("DB mark Archie notification started. IndexGuid: {IndexGuid}, Status: {Status}", indexGuid, status);
+        await using var connection = await OpenReadyConnectionAsync(cancellationToken);
+
+        string updateSql = $"""
+            UPDATE {GetQualifiedTableName("payment_checkout_session")}
+            SET
+                archie_notified_status = @archie_notified_status,
+                archie_notified_at_utc = NOW(),
+                updated_at_utc = NOW()
+            WHERE index_guid = @index_guid;
+            """;
+
+        await using var command = new NpgsqlCommand(updateSql, connection);
+        command.Parameters.AddWithValue("@archie_notified_status", status);
+        command.Parameters.AddWithValue("@index_guid", indexGuid);
+        int rows = await command.ExecuteNonQueryAsync(cancellationToken);
+        if (rows == 0)
+        {
+            _logger.LogWarning("DB mark Archie notification affected 0 rows. IndexGuid: {IndexGuid}, Status: {Status}", indexGuid, status);
+        }
+        else
+        {
+            _logger.LogInformation("DB mark Archie notification succeeded. IndexGuid: {IndexGuid}, Status: {Status}, Rows: {Rows}", indexGuid, status, rows);
         }
     }
 
@@ -848,6 +883,8 @@ public sealed class PaymentDataStore : IPaymentDataStore
                     space_name VARCHAR(255) NULL,
                     decrypted_json TEXT NOT NULL,
                     status VARCHAR(20) NOT NULL DEFAULT 'Pending',
+                    archie_notified_status VARCHAR(20) NULL,
+                    archie_notified_at_utc TIMESTAMPTZ NULL,
                     selected_channel_code VARCHAR(100) NULL,
                     payment_url TEXT NULL,
                     created_at_utc TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -899,6 +936,12 @@ public sealed class PaymentDataStore : IPaymentDataStore
 
                 CREATE INDEX IF NOT EXISTS ix_password_reset_tokens_user_id
                 ON {GetQualifiedTableName("password_reset_tokens")} (user_id);
+
+                ALTER TABLE {GetQualifiedTableName("payment_checkout_session")}
+                ADD COLUMN IF NOT EXISTS archie_notified_status VARCHAR(20) NULL;
+
+                ALTER TABLE {GetQualifiedTableName("payment_checkout_session")}
+                ADD COLUMN IF NOT EXISTS archie_notified_at_utc TIMESTAMPTZ NULL;
                 """;
 
             await using var command = new NpgsqlCommand(createSql, connection);
@@ -992,6 +1035,8 @@ public sealed class PaymentDataStore : IPaymentDataStore
             SpaceName = reader["space_name"] as string,
             DecryptedJson = reader["decrypted_json"] as string ?? string.Empty,
             Status = reader["status"] as string ?? "Pending",
+            ArchieNotifiedStatus = reader["archie_notified_status"] as string,
+            ArchieNotifiedAtUtc = reader["archie_notified_at_utc"] is DBNull ? null : reader.GetDateTime(reader.GetOrdinal("archie_notified_at_utc")),
             SelectedChannelCode = reader["selected_channel_code"] as string,
             PaymentUrl = reader["payment_url"] as string,
             CreatedAtUtc = reader.GetDateTime(reader.GetOrdinal("created_at_utc")),

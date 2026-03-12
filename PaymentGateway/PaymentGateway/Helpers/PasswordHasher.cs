@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-
 namespace PaymentGateway.Helpers;
 
 public static class PasswordHasher
