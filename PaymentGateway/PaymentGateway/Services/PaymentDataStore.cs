@@ -964,16 +964,33 @@ public sealed class PaymentDataStore : IPaymentDataStore
                     type
                 )
                 VALUES
-                    ('KBANK_CARD_INSTALLMENT', 'KBank Card Installment', 'TH', 'THB', 100.00, NULL, 'T+2', FALSE, TRUE, FALSE, FALSE, 'CARD_INSTALLMENT'),
-                    ('BAY_CARD', 'Krungsri Credit Card', 'TH', 'THB', 50.00, NULL, 'T+2', TRUE, TRUE, FALSE, FALSE, 'CARD'),
-                    ('SCB_CARD', 'SCB Credit Card', 'TH', 'THB', 50.00, NULL, 'T+2', TRUE, TRUE, FALSE, FALSE, 'CARD'),
-                    ('BBL_CARD', 'Bangkok Bank Card', 'TH', 'THB', 50.00, NULL, 'T+2', TRUE, TRUE, FALSE, FALSE, 'CARD'),
-                    ('KTC_CARD', 'KTC Credit Card', 'TH', 'THB', 50.00, NULL, 'T+2', TRUE, TRUE, FALSE, FALSE, 'CARD'),
-                    ('UOB_CARD', 'UOB Credit Card', 'TH', 'THB', 50.00, NULL, 'T+2', TRUE, TRUE, FALSE, FALSE, 'CARD'),
-                    ('BAY_CARD_INSTALLMENT', 'Krungsri Card Installment', 'TH', 'THB', 500.00, NULL, 'T+2', FALSE, TRUE, FALSE, FALSE, 'CARD_INSTALLMENT'),
-                    ('SCB_CARD_INSTALLMENT', 'SCB Card Installment', 'TH', 'THB', 500.00, NULL, 'T+2', FALSE, TRUE, FALSE, FALSE, 'CARD_INSTALLMENT'),
-                    ('THAI_QR', 'Thai QR Payment', 'TH', 'THB', 1.00, NULL, 'T+0', FALSE, FALSE, TRUE, FALSE, 'QR'),
-                    ('PROMPTPAY', 'PromptPay', 'TH', 'THB', 1.00, NULL, 'T+0', FALSE, FALSE, TRUE, FALSE, 'QR')
+                    ('7ELEVEN', '7-Eleven', 'PH', 'PHP', 50, 50000, 'T+5 BUSINESS DAYS', FALSE, FALSE, FALSE, FALSE, 'OVER THE COUNTER'),
+                    ('7ELEVEN_CLIQQ', '7-Eleven CLiQQ', 'PH', 'PHP', 100, 50000, 'T+5 BUSINESS DAYS', FALSE, FALSE, TRUE, FALSE, 'OVER THE COUNTER'),
+                    ('BANK_TRANSFER', 'Bank Transfer', 'PH', 'PHP', 1, 200000000, 'T+3 BUSINESS DAYS', FALSE, FALSE, TRUE, FALSE, 'BANK TRANSFER'),
+                    ('BILLEASE', 'BillEase', 'PH', 'PHP', 50, 150000, 'T+3 CALENDAR DAYS*', TRUE, FALSE, FALSE, FALSE, 'PAYLATER'),
+                    ('BPI_DIRECT_DEBIT', 'Bank of the Philippine Islands', 'PH', 'PHP', 0.01, 500000, 'T+1 CALENDAR DAYS*', TRUE, TRUE, FALSE, FALSE, 'ONLINE BANKING'),
+                    ('BPI_RECURRING', 'Bank of the Philippine Islands', 'PH', 'PHP', 1, 100000, 'T+1 CALENDAR DAYS*', FALSE, TRUE, FALSE, TRUE, 'ONLINE BANKING'),
+                    ('CARDS', 'Cards', 'PH', 'USD', 0.01, 200000, 'T+5 CALENDAR DAYS', TRUE, TRUE, FALSE, TRUE, 'CARDS'),
+                    ('CARDS', 'Cards', 'PH', 'PHP', 20, 700000, 'T+5 CALENDAR DAYS', TRUE, TRUE, FALSE, TRUE, 'CARDS'),
+                    ('CEBUANA', 'Cebuana Lhuillier', 'PH', 'PHP', 50, 30000, 'T+2 BUSINESS DAYS', FALSE, FALSE, TRUE, FALSE, 'OVER THE COUNTER'),
+                    ('CHINABANK_DIRECT_DEBIT', 'Chinabank Direct Debit', 'PH', 'PHP', 0.01, 50000, 'T+1 CALENDAR DAYS*', TRUE, TRUE, FALSE, FALSE, 'ONLINE BANKING'),
+                    ('ECPAY', 'ECPay', 'PH', 'PHP', 1, 50000, 'T+2 BUSINESS DAYS', FALSE, FALSE, TRUE, FALSE, 'OVER THE COUNTER'),
+                    ('ECPAY_DRAGONLOAN', 'ECPay DragonLoan', 'PH', 'PHP', 50, 50000, 'T+2 BUSINESS DAYS', FALSE, FALSE, TRUE, FALSE, 'OVER THE COUNTER'),
+                    ('ECPAY_SCHOOL', 'ECPay School', 'PH', 'PHP', 50, 50000, 'T+2 BUSINESS DAYS', FALSE, FALSE, TRUE, FALSE, 'OVER THE COUNTER'),
+                    ('GCASH', 'GCash', 'PH', 'PHP', 1, 100000, 'T+2 CALENDAR DAYS*', TRUE, FALSE, FALSE, FALSE, 'EWALLET'),
+                    ('GRABPAY', 'GrabPay', 'PH', 'PHP', 1, 100000, 'T+2 CALENDAR DAYS*', TRUE, TRUE, FALSE, TRUE, 'EWALLET'),
+                    ('LBC', 'LBC', 'PH', 'PHP', 50, 200000, 'T+2 BUSINESS DAYS', FALSE, FALSE, TRUE, FALSE, 'OVER THE COUNTER'),
+                    ('MLHUILLIER', 'M Lhuillier', 'PH', 'PHP', 50, 150000, 'T+2 BUSINESS DAYS', FALSE, FALSE, TRUE, FALSE, 'OVER THE COUNTER'),
+                    ('PALAWAN', 'Palawan Express', 'PH', 'PHP', 50, 20000, 'T+2 BUSINESS DAYS', FALSE, FALSE, TRUE, FALSE, 'OVER THE COUNTER'),
+                    ('PAYMAYA', 'PayMaya', 'PH', 'PHP', 1, 100000, 'T+2 CALENDAR DAYS*', TRUE, TRUE, FALSE, TRUE, 'EWALLET'),
+                    ('QRPH', 'QR Ph', 'PH', 'PHP', 1, 50000, 'T+1 CALENDAR DAYS*', FALSE, FALSE, FALSE, FALSE, 'QR CODE'),
+                    ('RCBC_DIRECT_DEBIT', 'RCBC Direct Debit', 'PH', 'PHP', 0.01, NULL, 'T+1 CALENDAR DAYS*', TRUE, TRUE, FALSE, FALSE, 'ONLINE BANKING'),
+                    ('ROBINSONS_BILLS_PAYMENT', 'Robinsons Bills Payment', 'PH', 'PHP', 50, 200000, 'T+2 BUSINESS DAYS', FALSE, FALSE, TRUE, FALSE, 'OVER THE COUNTER'),
+                    ('SHOPEEPAY', 'ShopeePay', 'PH', 'PHP', 1, 100000, 'T+2 CALENDAR DAYS*', TRUE, TRUE, FALSE, TRUE, 'EWALLET'),
+                    ('SM_BILLS_PAYMENT', 'SM Bills Payment', 'PH', 'PHP', 50, 200000, 'T+2 BUSINESS DAYS', FALSE, FALSE, TRUE, FALSE, 'OVER THE COUNTER'),
+                    ('UBP_DIRECT_DEBIT', 'UnionBank Direct Debit', 'PH', 'PHP', 0.01, NULL, 'T+1 CALENDAR DAYS*', TRUE, TRUE, FALSE, FALSE, 'ONLINE BANKING'),
+                    ('UBP_EADA', 'UnionBank eADA', 'PH', 'PHP', 1, 100000, 'T+1 CALENDAR DAYS*', FALSE, TRUE, FALSE, TRUE, 'ONLINE BANKING'),
+                    ('USSC', 'USSC (Universal Storefront Services Corp.)', 'PH', 'PHP', 50, 20000, 'T+2 BUSINESS DAYS', FALSE, FALSE, TRUE, FALSE, 'OVER THE COUNTER')
                 ON CONFLICT (channel_code, country, currency)
                 DO NOTHING;
                 """;

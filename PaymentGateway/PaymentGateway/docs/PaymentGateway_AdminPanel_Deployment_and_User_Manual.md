@@ -51,7 +51,7 @@ The application reads settings from `appsettings.json` and environment-specific 
 | `Xendit:FailureReturnUrl` | Failure redirect URL | `https://your-domain/payment/failed` |
 | `Auth:ResetTokenExpiryMinutes` | Password reset link validity | `30` |
 | `Email:SmtpHost`, `Email:From`, etc. | SMTP settings for password reset emails | `smtp.company.com` |
-| `Logging:File:Path` | Directory for file logs | `logs` |
+| `Logging:File:Path` | Directory for file logs. Use an absolute path in Production; relative paths resolve under the published app directory. | `logs` |
 
 ### Important Security Note
 Do not keep production secrets in source-controlled `appsettings.json`. Use `appsettings.Production.json`, environment variables, or a secret manager.
@@ -222,6 +222,7 @@ sudo systemctl status paymentgateway
 ### 9.2 Logs
 - Systemd logs: `journalctl -u paymentgateway -f`
 - Application file logs: configured via `Logging:File:Path`
+- If the configured file-log path is not writable, the app falls back to a temp directory and writes the reason to `journalctl`
 
 ### 9.3 Backup
 ```bash

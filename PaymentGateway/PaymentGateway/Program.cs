@@ -1,15 +1,14 @@
+const string SerilogOutputTemplate = "{Timestamp:O} [{Level:u3}] {SourceContext} | {Message:lj}{NewLine}{Exception}";
+
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Logging.ClearProviders();
+Serilog.Debugging.SelfLog.Enable(message => Console.Error.WriteLine($"[Serilog] {message}"));
 builder.Host.UseSerilog((context, _, loggerConfiguration) =>
 {
-    string logDirectory = context.Configuration["Logging:File:Path"] ?? Path.Combine(AppContext.BaseDirectory, "logs");
-    if (!Path.IsPathRooted(logDirectory))
-    {
-        logDirectory = Path.Combine(context.HostingEnvironment.ContentRootPath, logDirectory);
-    }
-
-    Directory.CreateDirectory(logDirectory);
+    string logDirectory = ResolveWritableLogDirectory(
+        context.Configuration["Logging:File:Path"],
+        context.HostingEnvironment.ContentRootPath);
 
     var fileMinLevel = ParseLogEventLevel(context.Configuration["Logging:File:MinLevel"], LogEventLevel.Information);
     var microsoftMinLevel = ParseLogEventLevel(context.Configuration["Logging:LogLevel:Microsoft"], LogEventLevel.Warning);
@@ -25,7 +24,7 @@ builder.Host.UseSerilog((context, _, loggerConfiguration) =>
             rollingInterval: RollingInterval.Day,
             retainedFileCountLimit: 31,
             shared: true,
-            outputTemplate: "{Timestamp:O} [{Level:u3}] {SourceContext} | {Message:lj}{NewLine}{Exception}"));
+            outputTemplate: SerilogOutputTemplate));
 });
 
 builder.WebHost.ConfigureKestrel((context, options) =>
@@ -76,6 +75,16 @@ if (!app.Environment.IsDevelopment())
 }
 
 //app.UseHttpsRedirection();
+app.UseSerilogRequestLogging(options =>
+{
+    options.MessageTemplate = "HTTP {RequestMethod} {RequestPath} responded {StatusCode} in {Elapsed:0.0000} ms";
+    options.EnrichDiagnosticContext = (diagnosticContext, httpContext) =>
+    {
+        diagnosticContext.Set("TraceIdentifier", httpContext.TraceIdentifier);
+        diagnosticContext.Set("RequestHost", httpContext.Request.Host.Value ?? string.Empty);
+        diagnosticContext.Set("RequestScheme", httpContext.Request.Scheme);
+    };
+});
 app.UseRouting();
 
 app.UseAuthentication();
@@ -105,6 +114,59 @@ static LogEventLevel ParseLogEventLevel(string? value, LogEventLevel fallback)
     return Enum.TryParse<LogEventLevel>(value, true, out var parsedLevel)
         ? parsedLevel
         : fallback;
+}
+
+static string ResolveWritableLogDirectory(string? configuredPath, string contentRootPath)
+{
+    string normalizedConfiguredPath = string.IsNullOrWhiteSpace(configuredPath)
+        ? "logs"
+        : configuredPath.Trim();
+    string appBaseDirectory = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+    string normalizedContentRoot = contentRootPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+    var candidates = new List<string>();
+
+    if (Path.IsPathRooted(normalizedConfiguredPath))
+    {
+        candidates.Add(normalizedConfiguredPath);
+    }
+    else
+    {
+        candidates.Add(Path.Combine(appBaseDirectory, normalizedConfiguredPath));
+        if (!string.Equals(appBaseDirectory, normalizedContentRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            candidates.Add(Path.Combine(normalizedContentRoot, normalizedConfiguredPath));
+        }
+    }
+
+    candidates.Add(Path.Combine(Path.GetTempPath(), "paymentgateway-logs"));
+
+    Exception? lastError = null;
+    foreach (string candidate in candidates.Distinct(StringComparer.OrdinalIgnoreCase))
+    {
+        try
+        {
+            Directory.CreateDirectory(candidate);
+
+            string probeFilePath = Path.Combine(candidate, $".write-test-{Environment.ProcessId}");
+            using (File.Create(probeFilePath, 1, FileOptions.DeleteOnClose))
+            {
+            }
+
+            if (!string.Equals(candidate, candidates[0], StringComparison.OrdinalIgnoreCase))
+            {
+                Console.Error.WriteLine($"[Logging] Falling back to writable log directory: {candidate}");
+            }
+
+            return candidate;
+        }
+        catch (Exception ex)
+        {
+            lastError = ex;
+            Console.Error.WriteLine($"[Logging] Failed to use log directory '{candidate}': {ex.Message}");
+        }
+    }
+
+    throw new InvalidOperationException("No writable log directory is available for Serilog file logging.", lastError);
 }
 
 static string BuildProjectBanner(string environmentName)

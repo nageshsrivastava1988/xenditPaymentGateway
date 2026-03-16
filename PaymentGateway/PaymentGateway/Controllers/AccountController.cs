@@ -25,9 +25,11 @@ public class AccountController : Controller
     {
         if (User.Identity?.IsAuthenticated == true)
         {
+            _logger.LogInformation("Authenticated user requested login page and was redirected to the report page.");
             return RedirectToAction("Index", "Report");
         }
 
+        _logger.LogInformation("Login page rendered. ReturnUrl: {ReturnUrl}", returnUrl);
         ViewData["ReturnUrl"] = returnUrl;
         return View(new LoginViewModel());
     }
@@ -38,8 +40,10 @@ public class AccountController : Controller
     public async Task<IActionResult> Login(LoginViewModel model, string? returnUrl, CancellationToken cancellationToken)
     {
         ViewData["ReturnUrl"] = returnUrl;
+        _logger.LogInformation("Login attempt received. Email: {Email}, ReturnUrl: {ReturnUrl}, RememberMe: {RememberMe}", model.Email, returnUrl, model.RememberMe);
         if (!ModelState.IsValid)
         {
+            _logger.LogWarning("Login attempt rejected because the model state is invalid. Email: {Email}", model.Email);
             return View(model);
         }
 
@@ -64,22 +68,27 @@ public class AccountController : Controller
 
         if (user is null)
         {
+            _logger.LogWarning("Login attempt failed. Invalid credentials. Email: {Email}", model.Email);
             ModelState.AddModelError(string.Empty, "Invalid email or password.");
             return View(model);
         }
 
         await SignInUserAsync(user, model.RememberMe);
+        _logger.LogInformation("Login attempt succeeded. UserId: {UserId}, Email: {Email}, RememberMe: {RememberMe}", user.UserId, user.Email, model.RememberMe);
 
         if (firstUserCreated)
         {
+            _logger.LogInformation("First application user created during login. UserId: {UserId}, Email: {Email}", user.UserId, user.Email);
             return RedirectToAction("Index", "Report");
         }
 
         if (!string.IsNullOrWhiteSpace(returnUrl) && Url.IsLocalUrl(returnUrl))
         {
+            _logger.LogInformation("Redirecting authenticated user to local return URL: {ReturnUrl}", returnUrl);
             return Redirect(returnUrl);
         }
 
+        _logger.LogInformation("Redirecting authenticated user to the report page.");
         return RedirectToAction("Index", "Report");
     }
 
@@ -88,6 +97,7 @@ public class AccountController : Controller
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> Logout()
     {
+        _logger.LogInformation("Logout requested for User: {User}", User.Identity?.Name);
         await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
         return RedirectToAction(nameof(Login));
     }
@@ -96,6 +106,7 @@ public class AccountController : Controller
     [HttpGet("account/forgot-password")]
     public IActionResult ForgotPassword()
     {
+        _logger.LogInformation("Forgot password page rendered.");
         return View(new ForgotPasswordViewModel());
     }
 
@@ -106,9 +117,11 @@ public class AccountController : Controller
     {
         if (!ModelState.IsValid)
         {
+            _logger.LogWarning("Forgot password submission rejected because the model state is invalid. Email: {Email}", model.Email);
             return View(model);
         }
 
+        _logger.LogInformation("Forgot password requested. Email: {Email}", model.Email);
         UserAccountRecord? user = await _dataStore.GetUserByEmailAsync(model.Email, cancellationToken);
         if (user is not null)
         {
@@ -132,11 +145,16 @@ public class AccountController : Controller
                                    ?? $"{Request.Scheme}://{Request.Host}/account/reset-password?tokenId={tokenId}&token={Uri.EscapeDataString(rawToken)}";
 
                 await _accountEmailService.SendPasswordResetLinkAsync(user.Email, resetLink, cancellationToken);
+                _logger.LogInformation("Password reset token generated. UserId: {UserId}, Email: {Email}", user.UserId, user.Email);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to generate/send password reset link for user {UserId}", user.UserId);
             }
+        }
+        else
+        {
+            _logger.LogWarning("Forgot password requested for an unknown email. Email: {Email}", model.Email);
         }
 
         return RedirectToAction(nameof(ForgotPasswordConfirmation));
@@ -155,15 +173,18 @@ public class AccountController : Controller
     {
         if (tokenId == Guid.Empty || string.IsNullOrWhiteSpace(token))
         {
+            _logger.LogWarning("Reset password page requested with missing token data. TokenId: {TokenId}", tokenId);
             return View("ResetPasswordInvalid");
         }
 
         bool isValid = await _dataStore.IsPasswordResetTokenValidAsync(tokenId, ResetTokenHelper.HashToken(token), cancellationToken);
         if (!isValid)
         {
+            _logger.LogWarning("Reset password page requested with an invalid or expired token. TokenId: {TokenId}", tokenId);
             return View("ResetPasswordInvalid");
         }
 
+        _logger.LogInformation("Reset password page rendered for a valid token. TokenId: {TokenId}", tokenId);
         return View(new ResetPasswordViewModel
         {
             TokenId = tokenId,
@@ -178,6 +199,7 @@ public class AccountController : Controller
     {
         if (!ModelState.IsValid)
         {
+            _logger.LogWarning("Reset password submission rejected because the model state is invalid. TokenId: {TokenId}", model.TokenId);
             return View(model);
         }
 
@@ -191,10 +213,12 @@ public class AccountController : Controller
 
         if (!updated)
         {
+            _logger.LogWarning("Reset password submission failed because the token is invalid, expired, or used. TokenId: {TokenId}", model.TokenId);
             ModelState.AddModelError(string.Empty, "Reset link is invalid, expired, or already used.");
             return View(model);
         }
 
+        _logger.LogInformation("Password reset completed successfully. TokenId: {TokenId}", model.TokenId);
         return RedirectToAction(nameof(ResetPasswordConfirmation));
     }
 
@@ -209,6 +233,7 @@ public class AccountController : Controller
     [HttpGet("account/change-password")]
     public IActionResult ChangePassword()
     {
+        _logger.LogInformation("Change password page rendered for User: {User}", User.Identity?.Name);
         return View(new ChangePasswordViewModel());
     }
 
@@ -219,12 +244,14 @@ public class AccountController : Controller
     {
         if (!ModelState.IsValid)
         {
+            _logger.LogWarning("Change password submission rejected because the model state is invalid. User: {User}", User.Identity?.Name);
             return View(model);
         }
 
         string? userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if (!Guid.TryParse(userIdClaim, out Guid userId))
         {
+            _logger.LogWarning("Change password submission failed because the user identifier claim is invalid.");
             await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
             return RedirectToAction(nameof(Login));
         }
@@ -232,24 +259,28 @@ public class AccountController : Controller
         UserAccountRecord? user = await _dataStore.GetUserByIdAsync(userId, cancellationToken);
         if (user is null)
         {
+            _logger.LogWarning("Change password submission failed because the user record was not found. UserId: {UserId}", userId);
             await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
             return RedirectToAction(nameof(Login));
         }
 
         if (!PasswordHasher.VerifyPassword(model.CurrentPassword, user.PasswordHash, user.PasswordSalt))
         {
+            _logger.LogWarning("Change password submission failed because the current password is incorrect. UserId: {UserId}", userId);
             ModelState.AddModelError(nameof(ChangePasswordViewModel.CurrentPassword), "Current password is incorrect.");
             return View(model);
         }
 
         if (model.CurrentPassword == model.NewPassword)
         {
+            _logger.LogWarning("Change password submission failed because the new password matches the current password. UserId: {UserId}", userId);
             ModelState.AddModelError(nameof(ChangePasswordViewModel.NewPassword), "New password must be different from current password.");
             return View(model);
         }
 
         (byte[] newHash, byte[] newSalt) = PasswordHasher.HashPassword(model.NewPassword);
         await _dataStore.UpdateUserPasswordAsync(userId, newHash, newSalt, cancellationToken);
+        _logger.LogInformation("Password changed successfully. UserId: {UserId}", userId);
 
         TempData["SuccessMessage"] = "Password updated successfully.";
         return RedirectToAction(nameof(ChangePassword));
