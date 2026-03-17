@@ -59,13 +59,26 @@ public sealed class ArchiePaymentNotifier : IArchiePaymentNotifier
 
             string accessToken = await GetAccessTokenAsync(cancellationToken);
             string archieStatus = MapArchieStatus(normalizedStatus);
-
+            PaymentAccount? payment = await GetPaymentChannelAsync(spaceDomain, accessToken, cancellationToken) ?? throw new HttpRequestException($"No Xendit Payment Account found");
             var client = _httpClientFactory.CreateClient("Archie");
             using var request = new HttpRequestMessage(
                 HttpMethod.Post,
-                $"spaces/{Uri.EscapeDataString(spaceDomain)}/invoices/{Uri.EscapeDataString(invoiceUuid)}/pay");
+                $"v1/spaces/{Uri.EscapeDataString(spaceDomain)}/invoices/{Uri.EscapeDataString(invoiceUuid)}/pay");
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-            request.Content = JsonContent.Create(new { status = archieStatus });
+            request.Content = JsonContent.Create(new
+            {
+                status = archieStatus,
+                payment_account = new
+                {
+                    creation_date = payment.CreationDate,
+                    href = payment.Href,
+                    name = payment.Name,
+                    type = payment.Type,
+                    update_date = payment.UpdateDate,
+                    uuid = payment.Uuid
+                },
+                amount=session.Amount
+            });
 
             using var response = await client.SendAsync(request, cancellationToken);
             string responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -95,11 +108,11 @@ public sealed class ArchiePaymentNotifier : IArchiePaymentNotifier
 
         var client = _httpClientFactory.CreateClient("Archie");
         using var response = await client.PostAsJsonAsync(
-            "auth/token",
+            "v1/authenticate",
             new
             {
-                clientId,
-                clientSecret
+                client_id = clientId,
+                client_secret = clientSecret
             },
             cancellationToken);
 
@@ -119,6 +132,25 @@ public sealed class ArchiePaymentNotifier : IArchiePaymentNotifier
             return accessToken!;
         }
 
+        throw new InvalidOperationException("Archie auth token response did not contain an access token.");
+    }
+
+    private async Task<PaymentAccount?> GetPaymentChannelAsync(string spaceDomain, string accessToken, CancellationToken cancellationToken)
+    {
+
+        var client = _httpClientFactory.CreateClient("Archie");
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"v1/spaces/{spaceDomain}/paymentAccounts");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        using var response = await client.SendAsync(request, cancellationToken);
+        string responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new HttpRequestException(
+                $"Archie auth token API failed with {(int)response.StatusCode}: {Truncate(responseBody, 2000)}");
+        }
+        List<PaymentAccount>? payments = JsonSerializer.Deserialize<List<PaymentAccount>>(responseBody);
+        if (payments != null)
+            return payments.FirstOrDefault(x => x.Name == "Xendit");
         throw new InvalidOperationException("Archie auth token response did not contain an access token.");
     }
 
